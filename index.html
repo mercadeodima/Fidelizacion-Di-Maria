@@ -263,6 +263,7 @@
         <label for="apiUrl">URL del Web App</label>
         <input id="apiUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
         <button class="btn" onclick="saveApi()">Guardar y probar conexión</button>
+        <button class="btn ghost" onclick="resetApi()">Restaurar conexión de fábrica</button>
         <div id="apiMsg" class="msg"></div>
       </div>
 
@@ -2616,12 +2617,23 @@ function storeRewards(v,arr){
 ['cafe','bar'].forEach(v=>{ CONFIG[v].rewards=rewardsFor(v); });
 
 let venue='cafe', role='client', session=null, sessionName='';
-let API = ''; // se guarda en variable (localStorage no disponible en preview de Claude)
-try{ API = localStorage.getItem('dimaria_api') || ''; }catch(e){}
+
+/* ===================================================================
+   URL DEL BACKEND (Google Apps Script)
+   Viene configurada de fábrica: la app funciona en cualquier celular
+   sin que el cliente tenga que hacer nada.
+   Si algún día cambias el script, puedes actualizarla aquí,
+   o desde el panel Admin (eso solo la cambia en ese dispositivo).
+   =================================================================== */
+const API_DEFAULT = 'https://script.google.com/macros/s/AKfycby3CQbekhwz4PHCl3YljPXUVbAzKJBt1xlNnX4xuLI-HNuMeYJpKWNEn1jXNI3MK4bH/exec';
+
+let API = API_DEFAULT;
+// Si este dispositivo guardó una URL distinta desde Admin, esa manda.
+try{ const saved = localStorage.getItem('dimaria_api'); if(saved) API = saved; }catch(e){}
 
 /* ---- llamada al backend ---- */
 async function api(params){
-  if(!API) throw new Error('No hay conexión configurada. Ve a la pestaña Admin → Conexión con Google Sheets.');
+  if(!API) throw new Error('No hay conexión configurada.');
   const url = API + '?' + new URLSearchParams(params).toString();
   const res = await fetch(url, { method:'GET' });
   const txt = await res.text();
@@ -2637,6 +2649,13 @@ function loading(btnId,on,label){
   const b=document.getElementById(btnId); if(!b)return;
   if(on){ b.dataset.txt=b.textContent; b.innerHTML='<span class="spinner"></span>'+(label||'...'); b.disabled=true; }
   else{ b.textContent=b.dataset.txt||label; b.disabled=false; }
+}
+
+function resetApi(){
+  API = API_DEFAULT;
+  try{ localStorage.removeItem('dimaria_api'); }catch(e){}
+  document.getElementById('apiUrl').value = API_DEFAULT;
+  flash('apiMsg','Conexión restaurada a la de fábrica ✓',true);
 }
 
 async function saveApi(){
