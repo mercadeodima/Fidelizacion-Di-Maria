@@ -2,8 +2,17 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Club Di María</title>
+<!-- PWA: permite guardar la tarjeta como app en el celular -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#a2532a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Di María">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Archivo:wght@400;500;600;700&display=swap');
   :root{
@@ -169,6 +178,13 @@
         <h2>Canjea tus puntos</h2>
         <p class="sub" id="rewardSub">Premios disponibles</p>
         <ul class="rewards" id="rewardList"></ul>
+      </div>
+      <button class="btn" onclick="showInstall()">📲 Guardar mi tarjeta en el celular</button>
+      <div id="installBox" class="panel hidden" style="margin-top:12px">
+        <h2>Ten tu tarjeta siempre a mano</h2>
+        <p class="sub" id="installIntro">Guárdala en tu pantalla de inicio y ábrela con un toque, sin escribir tu teléfono.</p>
+        <ol id="installSteps" style="margin:0 0 4px 18px;font-size:14px;line-height:1.9"></ol>
+        <button class="btn ghost" onclick="hideInstall()">Entendido</button>
       </div>
       <button class="btn ghost" onclick="logout()">Salir</button>
     </div>
@@ -2666,7 +2682,7 @@ async function clientContinue(){
   try{
     if(!pendingRegister){
       const r=await api({action:'get',venue,phone});
-      if(r.exists){ session=phone; sessionName=r.cliente.nombre; renderCard(r); loading('authBtn',false,'Continuar'); return; }
+      if(r.exists){ session=phone; sessionName=r.cliente.nombre; saveSession(phone, r.cliente.nombre); renderCard(r); loading('authBtn',false,'Continuar'); return; }
       // no existe → registro
       document.getElementById('regFields').classList.remove('hidden');
       document.getElementById('authTitle').textContent='Crea tu tarjeta';
@@ -2680,7 +2696,7 @@ async function clientContinue(){
       email:document.getElementById('cEmail').value.trim(),
       cumple:document.getElementById('cBday').value.trim()});
     if(!r.ok){ flash('authMsg',r.error||'No se pudo registrar',false); loading('authBtn',false,'Continuar'); return; }
-    pendingRegister=false; session=phone; sessionName=name;
+    pendingRegister=false; session=phone; sessionName=name; saveSession(phone, name);
     const g=await api({action:'get',venue,phone}); renderCard(g);
   }catch(e){ flash('authMsg',e.message,false); }
   loading('authBtn',false,'Continuar');
@@ -2715,10 +2731,32 @@ function renderClient(){
 }
 function logout(){
   session=null;pendingRegister=false;
+  clearSession();
   ['cPhone','cName','cEmail','cBday'].forEach(i=>document.getElementById(i).value='');
   document.getElementById('regFields').classList.add('hidden');
   document.getElementById('authTitle').textContent='Regístrate o ingresa';
   renderClient();
+}
+
+/* ---- Sesión persistente del cliente ---- */
+function saveSession(phone, name){
+  try{ localStorage.setItem('dimaria_sesion', JSON.stringify({phone:phone, name:name, venue:venue})); }catch(e){}
+}
+function clearSession(){
+  try{ localStorage.removeItem('dimaria_sesion'); }catch(e){}
+}
+function loadSession(){
+  try{ const raw=localStorage.getItem('dimaria_sesion'); return raw? JSON.parse(raw): null; }catch(e){ return null; }
+}
+// Al abrir la app: si hay sesión guardada, entra directo a la tarjeta
+async function autoLogin(){
+  const s=loadSession();
+  if(!s || !s.phone || !API) return;
+  if(s.venue && s.venue!==venue) setVenue(s.venue);
+  try{
+    const r=await api({action:'get',venue,phone:s.phone});
+    if(r.exists){ session=s.phone; sessionName=r.cliente.nombre; renderCard(r); }
+  }catch(e){ /* si falla, se queda en la pantalla de ingreso */ }
 }
 
 /* ---- NEGOCIO ---- */
@@ -2928,7 +2966,60 @@ function resetRewards(){
   flash('adminSaveMsg','Premios restaurados a los valores por defecto.',true);
 }
 
+/* ---- Guardar tarjeta / instalar app ---- */
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',(e)=>{ e.preventDefault(); deferredPrompt=e; });
+
+function showInstall(){
+  const box=document.getElementById('installBox');
+  const steps=document.getElementById('installSteps');
+  const intro=document.getElementById('installIntro');
+  const ua=navigator.userAgent||'';
+  const isIOS=/iPad|iPhone|iPod/.test(ua);
+  const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+
+  if(standalone){
+    intro.textContent='¡Listo! Ya tienes la tarjeta guardada en tu celular.';
+    steps.innerHTML='<li>Ábrela desde el ícono de Club Di María cuando quieras.</li>';
+    box.classList.remove('hidden'); return;
+  }
+
+  // Android/Chrome con instalación nativa disponible
+  if(deferredPrompt){
+    intro.textContent='Toca instalar y la tarjeta quedará en tu pantalla de inicio.';
+    steps.innerHTML='<li>Se abrirá un aviso de tu celular: toca <b>Instalar</b>.</li>';
+    box.classList.remove('hidden');
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.finally(()=>{ deferredPrompt=null; });
+    return;
+  }
+
+  if(isIOS){
+    intro.textContent='En iPhone, guárdala así (toma 5 segundos):';
+    steps.innerHTML=
+      '<li>Toca el botón <b>Compartir</b> ⬆️ (abajo en Safari).</li>'+
+      '<li>Desliza y elige <b>Añadir a pantalla de inicio</b>.</li>'+
+      '<li>Toca <b>Añadir</b>. ¡Listo!</li>';
+  } else {
+    intro.textContent='En Android, guárdala así (toma 5 segundos):';
+    steps.innerHTML=
+      '<li>Toca el menú <b>⋮</b> (arriba a la derecha).</li>'+
+      '<li>Elige <b>Agregar a pantalla de inicio</b> o <b>Instalar app</b>.</li>'+
+      '<li>Confirma. ¡Listo!</li>';
+  }
+  box.classList.remove('hidden');
+}
+function hideInstall(){ document.getElementById('installBox').classList.add('hidden'); }
+
 setVenue('cafe'); setRole('client');
+autoLogin();
+
+/* Registro del service worker (habilita "Instalar app") */
+if('serviceWorker' in navigator && location.protocol==='https:'){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
 </script>
 </body>
 </html>
