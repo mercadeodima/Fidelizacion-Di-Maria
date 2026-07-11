@@ -130,16 +130,6 @@
     <button id="role-admin" onclick="setRole('admin')">Admin</button>
   </div>
 
-  <!-- Config del backend -->
-  <div id="setupPanel" class="panel hidden">
-    <h2>Conectar con Google Sheets</h2>
-    <p class="sub">Pega la URL de tu Web App de Google Apps Script (ver guía de instalación).</p>
-    <label for="apiUrl">URL del Web App</label>
-    <input id="apiUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
-    <button class="btn" onclick="saveApi()">Guardar y probar conexión</button>
-    <div id="apiMsg" class="msg"></div>
-  </div>
-
   <!-- ============ CLIENTE ============ -->
   <div id="view-client">
     <div id="clientAuth" class="panel">
@@ -158,7 +148,6 @@
       <button class="btn" id="authBtn" onclick="clientContinue()">Continuar</button>
       <div id="authMsg" class="msg"></div>
       <p class="hint">Bono de bienvenida de 50 puntos al registrarte.<br>1 punto por cada $1.000. Los puntos vencen a los 12 meses.</p>
-      <div class="setupbar" onclick="toggleSetup()">Configurar conexión</div>
     </div>
 
     <div id="clientCard" class="hidden">
@@ -250,6 +239,15 @@
         <button class="btn ghost" onclick="addReward()">+ Agregar premio</button>
         <button class="btn" onclick="saveRewards()">Guardar cambios</button>
         <div id="adminSaveMsg" class="msg"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Conexión con Google Sheets</h2>
+        <p class="sub">Pega la URL de tu Web App de Google Apps Script (termina en /exec). Se guarda en este dispositivo.</p>
+        <label for="apiUrl">URL del Web App</label>
+        <input id="apiUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+        <button class="btn" onclick="saveApi()">Guardar y probar conexión</button>
+        <div id="apiMsg" class="msg"></div>
       </div>
 
       <div class="panel">
@@ -2607,7 +2605,7 @@ try{ API = localStorage.getItem('dimaria_api') || ''; }catch(e){}
 
 /* ---- llamada al backend ---- */
 async function api(params){
-  if(!API) throw new Error('No hay conexión configurada. Toca "Configurar conexión".');
+  if(!API) throw new Error('No hay conexión configurada. Ve a la pestaña Admin → Conexión con Google Sheets.');
   const url = API + '?' + new URLSearchParams(params).toString();
   const res = await fetch(url, { method:'GET' });
   const txt = await res.text();
@@ -2625,13 +2623,12 @@ function loading(btnId,on,label){
   else{ b.textContent=b.dataset.txt||label; b.disabled=false; }
 }
 
-function toggleSetup(){ document.getElementById('setupPanel').classList.toggle('hidden'); document.getElementById('apiUrl').value=API; }
 async function saveApi(){
   const u=document.getElementById('apiUrl').value.trim();
   if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(u)){ flash('apiMsg','La URL debe terminar en /exec y ser de script.google.com',false); return; }
   API=u; try{ localStorage.setItem('dimaria_api',u); }catch(e){}
   flash('apiMsg','Probando...',true);
-  try{ const r=await api({action:'ping'}); if(r.ok){ flash('apiMsg','✓ Conexión exitosa',true); setTimeout(()=>document.getElementById('setupPanel').classList.add('hidden'),1200);} else flash('apiMsg','El servidor respondió con error',false);}
+  try{ const r=await api({action:'ping'}); if(r.ok){ flash('apiMsg','✓ Conexión exitosa',true);} else flash('apiMsg','El servidor respondió con error',false);}
   catch(e){ flash('apiMsg','No se pudo conectar: '+e.message,false); }
 }
 
@@ -2872,6 +2869,7 @@ function adminUnlock(){
   document.getElementById('adminPin').value='';
   document.getElementById('adminLogin').classList.add('hidden');
   document.getElementById('adminPanel').classList.remove('hidden');
+  document.getElementById('apiUrl').value=API||'';
   renderRewardEditor();
 }
 function adminLock(){
