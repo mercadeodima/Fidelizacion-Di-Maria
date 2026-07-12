@@ -2642,11 +2642,22 @@ let venue='cafe', role='client', session=null, sessionName='';
    Si algún día cambias el script, puedes actualizarla aquí,
    o desde el panel Admin (eso solo la cambia en ese dispositivo).
    =================================================================== */
-const API_DEFAULT = 'https://script.google.com/macros/s/AKfycby3CQbekhwz4PHCl3YljPXUVbAzKJBt1xlNnX4xuLI-HNuMeYJpKWNEn1jXNI3MK4bH/exec';
+const API_DEFAULT = 'https://script.google.com/macros/s/AKfycbzmasPQ77qbhTQNpoJ_TPsszJYWJKO_ztgutELNxCH0GDZ_Y1jdgmDZHlTLgAIarBU/exec';
 
 let API = API_DEFAULT;
-// Si este dispositivo guardó una URL distinta desde Admin, esa manda.
-try{ const saved = localStorage.getItem('dimaria_api'); if(saved) API = saved; }catch(e){}
+// Si este dispositivo guardó una URL desde Admin, esa manda —
+// salvo que sea una URL antigua ya retirada, en cuyo caso se descarta.
+const URLS_RETIRADAS = [
+  'AKfycby3CQbekhwz4PHCl3YljPXUVbAzKJBt1xlNnX4xuLI-HNuMeYJpKWNEn1jXNI3MK4bH'
+];
+try{
+  const saved = localStorage.getItem('dimaria_api');
+  if(saved){
+    const obsoleta = URLS_RETIRADAS.some(x => saved.includes(x));
+    if(obsoleta){ localStorage.removeItem('dimaria_api'); }
+    else { API = saved; }
+  }
+}catch(e){}
 
 /* ---- llamada al backend ---- */
 async function api(params){
@@ -3050,10 +3061,35 @@ function hideInstall(){ document.getElementById('installBox').classList.add('hid
 setVenue('cafe'); setRole('client');
 autoLogin();
 
-/* Registro del service worker (habilita "Instalar app") */
+/* Service worker: registra y detecta versiones nuevas automáticamente.
+   Si hay una actualización, la instala y recarga sola. Así los clientes
+   siempre tienen la última versión sin hacer nada. */
 if('serviceWorker' in navigator && location.protocol==='https:'){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      // Busca actualizaciones al abrir y cada 60 segundos
+      reg.update();
+      setInterval(()=>reg.update(), 60000);
+
+      reg.addEventListener('updatefound',()=>{
+        const nuevo = reg.installing;
+        if(!nuevo) return;
+        nuevo.addEventListener('statechange',()=>{
+          if(nuevo.state==='installed' && navigator.serviceWorker.controller){
+            // Hay versión nueva lista: la activa y recarga
+            nuevo.postMessage('skipWaiting');
+          }
+        });
+      });
+    }).catch(()=>{});
+
+    // Cuando el service worker nuevo toma control, recarga una vez
+    let recargando=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(recargando) return;
+      recargando=true;
+      window.location.reload();
+    });
   });
 }
 </script>
