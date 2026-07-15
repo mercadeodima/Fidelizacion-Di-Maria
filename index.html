@@ -2614,24 +2614,50 @@ const CONFIG = {
     rewards:[[100,"Bebida de cortesía"],[200,"Entrada o picada del día"],[400,"Coctel de la casa"],[650,"Plato principal a elección"],[1000,"Cena para dos (plato + bebida)"]]}
 };
 
-/* ---- Premios: defaults + edición local por dispositivo ---- */
+/* ---- Premios: se leen del Google Sheet (compartidos por todos) ----
+   Los valores en CONFIG son solo un respaldo por si falla la conexión;
+   apenas carga la app, se reemplazan con los del Sheet. */
 const DEFAULT_REWARDS = {
   cafe: JSON.parse(JSON.stringify(CONFIG.cafe.rewards)),
   bar:  JSON.parse(JSON.stringify(CONFIG.bar.rewards))
 };
-function rewardsFor(v){
+let premiosCargados = { cafe:false, bar:false };
+
+// Trae los premios del Sheet para un local y refresca la vista si aplica.
+async function cargarPremios(v){
   try{
-    const raw=localStorage.getItem('dimaria_rewards_'+v);
-    if(raw){ const arr=JSON.parse(raw); if(Array.isArray(arr)&&arr.length) return arr; }
-  }catch(e){}
-  return DEFAULT_REWARDS[v];
+    const r = await api({action:'getPremios', venue:v});
+    if(r && r.ok && Array.isArray(r.premios) && r.premios.length){
+      CONFIG[v].rewards = r.premios;
+      premiosCargados[v] = true;
+      // si el cliente está viendo ese local, refresco su tarjeta
+      if(role==='client' && session && venue===v){ refrescarPremiosCliente(); }
+    }
+  }catch(e){ /* si falla, quedan los de respaldo */ }
 }
-function storeRewards(v,arr){
-  try{ localStorage.setItem('dimaria_rewards_'+v, JSON.stringify(arr)); }catch(e){}
-  CONFIG[v].rewards=arr;
+
+// Refresca solo la lista de premios en la tarjeta del cliente (sin recargar todo).
+function refrescarPremiosCliente(){
+  const list=document.getElementById('rewardList');
+  if(!list) return;
+  const bal = parseInt(document.getElementById('cardPts').textContent,10)||0;
+  list.innerHTML='';
+  CONFIG[venue].rewards.forEach(rw=>{
+    const ready=bal>=rw[0];
+    list.innerHTML+=`<li><div class="cost">${rw[0]}</div><div class="rname">${rw[1]}</div>
+      <div class="badge ${ready?'ready':'lock'}">${ready?'Disponible':'Faltan '+(rw[0]-bal)}</div></li>`;
+  });
 }
-// cargar lo guardado al iniciar
-['cafe','bar'].forEach(v=>{ CONFIG[v].rewards=rewardsFor(v); });
+
+// Guarda los premios de un local en el Sheet (desde el panel Admin).
+async function guardarPremiosSheet(v, lista){
+  const r = await api({action:'setPremios', venue:v, premios: JSON.stringify(lista)});
+  if(r && r.ok && Array.isArray(r.premios)){ CONFIG[v].rewards = r.premios; return r.premios; }
+  throw new Error(r && r.error ? r.error : 'No se pudo guardar');
+}
+
+// Al iniciar, cargo los premios de ambos locales desde el Sheet.
+['cafe','bar'].forEach(v=>cargarPremios(v));
 
 let venue='cafe', role='client', session=null, sessionName='';
 
@@ -2771,6 +2797,8 @@ function renderCard(r){
     list.innerHTML+=`<li><div class="cost">${rw[0]}</div><div class="rname">${rw[1]}</div>
       <div class="badge ${ready?'ready':'lock'}">${ready?'Disponible':'Faltan '+(rw[0]-r.balance)}</div></li>`;
   });
+  // aseguro que los premios estén frescos desde el Sheet
+  cargarPremios(venue);
 }
 function renderClient(){
   document.getElementById('clientAuth').classList.remove('hidden');
@@ -2972,9 +3000,13 @@ function changePin(){
 
 // draft de edición en memoria
 let editDraft=[];
-function renderRewardEditor(){
+async function renderRewardEditor(){
   document.getElementById('adminVenueTitle').textContent='Premios — '+CONFIG[venue].name;
-  editDraft = JSON.parse(JSON.stringify(CONFIG[venue].rewards)); // copia editable
+  const box=document.getElementById('rewardEditor');
+  box.innerHTML='<div class="empty"><span class="spinner"></span> Cargando premios...</div>';
+  // traigo los premios frescos del Sheet para editar los que todos ven
+  await cargarPremios(venue);
+  editDraft = JSON.parse(JSON.stringify(CONFIG[venue].rewards));
   paintEditor();
 }
 function paintEditor(){
@@ -2991,7 +3023,7 @@ function paintEditor(){
 }
 function addReward(){ editDraft.push([100,'Nuevo premio']); paintEditor(); }
 function removeReward(i){ editDraft.splice(i,1); paintEditor(); }
-function saveRewards(){
+async function saveRewards(){
   // validar
   const clean=[];
   for(const r of editDraft){
@@ -3002,15 +3034,26 @@ function saveRewards(){
   }
   if(!clean.length){ flash('adminSaveMsg','Debe haber al menos un premio.',false); return; }
   clean.sort((a,b)=>a[0]-b[0]); // ordenar por puntos ascendente
-  storeRewards(venue, clean);
-  editDraft=JSON.parse(JSON.stringify(clean));
-  paintEditor();
-  flash('adminSaveMsg','Premios guardados ✓ Ya se ven en Cliente y Negocio.',true);
+  flash('adminSaveMsg','Guardando en la nube...',true);
+  try{
+    const guardados = await guardarPremiosSheet(venue, clean);
+    editDraft = JSON.parse(JSON.stringify(guardados));
+    paintEditor();
+    flash('adminSaveMsg','Premios guardados ✓ Ya los ven TODOS los clientes.',true);
+  }catch(e){
+    flash('adminSaveMsg','No se pudo guardar: '+e.message,false);
+  }
 }
-function resetRewards(){
-  storeRewards(venue, JSON.parse(JSON.stringify(DEFAULT_REWARDS[venue])));
-  renderRewardEditor();
-  flash('adminSaveMsg','Premios restaurados a los valores por defecto.',true);
+async function resetRewards(){
+  flash('adminSaveMsg','Restaurando...',true);
+  try{
+    const guardados = await guardarPremiosSheet(venue, JSON.parse(JSON.stringify(DEFAULT_REWARDS[venue])));
+    editDraft = JSON.parse(JSON.stringify(guardados));
+    paintEditor();
+    flash('adminSaveMsg','Premios restaurados a los valores por defecto.',true);
+  }catch(e){
+    flash('adminSaveMsg','No se pudo restaurar: '+e.message,false);
+  }
 }
 
 /* ---- Guardar tarjeta / instalar app ---- */
