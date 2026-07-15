@@ -2668,13 +2668,14 @@ let venue='cafe', role='client', session=null, sessionName='';
    Si algún día cambias el script, puedes actualizarla aquí,
    o desde el panel Admin (eso solo la cambia en ese dispositivo).
    =================================================================== */
-const API_DEFAULT = 'https://script.google.com/macros/s/AKfycbzmasPQ77qbhTQNpoJ_TPsszJYWJKO_ztgutELNxCH0GDZ_Y1jdgmDZHlTLgAIarBU/exec';
+const API_DEFAULT = 'https://script.google.com/macros/s/AKfycbwkciDhGxhMaWQ0KHtJ-NZ74pb4uAlF97EjEBk5XyNw2r_t8aFuJZIMO_8M5a3J43a2/exec';
 
 let API = API_DEFAULT;
 // Si este dispositivo guardó una URL desde Admin, esa manda —
 // salvo que sea una URL antigua ya retirada, en cuyo caso se descarta.
 const URLS_RETIRADAS = [
-  'AKfycby3CQbekhwz4PHCl3YljPXUVbAzKJBt1xlNnX4xuLI-HNuMeYJpKWNEn1jXNI3MK4bH'
+  'AKfycby3CQbekhwz4PHCl3YljPXUVbAzKJBt1xlNnX4xuLI-HNuMeYJpKWNEn1jXNI3MK4bH',
+  'AKfycbzmasPQ77qbhTQNpoJ_TPsszJYWJKO_ztgutELNxCH0GDZ_Y1jdgmDZHlTLgAIarBU'
 ];
 try{
   const saved = localStorage.getItem('dimaria_api');
