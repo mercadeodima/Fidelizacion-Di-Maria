@@ -152,8 +152,21 @@
 
   <div class="roletabs">
     <button id="role-client" class="active" onclick="setRole('client')">Cliente</button>
-    <button id="role-biz" onclick="setRole('biz')">Negocio</button>
-    <button id="role-admin" onclick="setRole('admin')">Admin</button>
+    <button id="role-biz" class="hidden" onclick="setRole('biz')">Negocio</button>
+    <button id="role-admin" class="hidden" onclick="setRole('admin')">Admin</button>
+  </div>
+
+  <!-- Acceso discreto para el personal (código de 4 dígitos) -->
+  <div id="staffAccess" style="text-align:center;margin:-8px 0 18px">
+    <span id="staffLink" onclick="abrirStaffLogin()" style="font-size:11px;opacity:.35;cursor:pointer;letter-spacing:.03em">·</span>
+  </div>
+  <div id="staffLogin" class="panel hidden" style="max-width:340px;margin:0 auto 18px">
+    <h2 style="font-size:18px">Acceso personal</h2>
+    <p class="sub">Ingresa el código de tu local para acceder al panel de ventas.</p>
+    <input id="staffPin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off" style="text-align:center;letter-spacing:.5em;font-size:20px">
+    <button class="btn" onclick="validarStaff()">Entrar</button>
+    <div id="staffMsg" class="msg"></div>
+    <div style="text-align:center;margin-top:10px"><span onclick="cerrarStaffLogin()" style="font-size:12px;opacity:.5;cursor:pointer;text-decoration:underline">Cancelar</span></div>
   </div>
 
   <!-- ============ CLIENTE ============ -->
@@ -248,6 +261,7 @@
       <button class="btn ghost" style="margin-top:0" onclick="bizList()">Actualizar lista</button>
       <div id="bizListBox" style="margin-top:8px"></div>
     </div>
+    <button class="btn ghost" onclick="salirStaff()">🔒 Cerrar sesión de personal</button>
   </div>
 
   <!-- ============ ADMIN ============ -->
@@ -292,6 +306,14 @@
           <button class="btn" onclick="changePin()">Guardar PIN</button>
         </div>
         <div id="pinMsg" class="msg"></div>
+
+        <label for="staffCodeInput" style="margin-top:18px">Código de acceso del personal — <span id="staffCodeVenue">este local</span></label>
+        <div class="mini">
+          <input id="staffCodeInput" type="text" inputmode="numeric" placeholder="4 dígitos" maxlength="4">
+          <button class="btn" onclick="changeStaffCode()">Guardar código</button>
+        </div>
+        <div id="staffCodeMsg" class="msg"></div>
+
         <button class="btn ghost" onclick="resetRewards()">Restaurar premios por defecto (este local)</button>
         <button class="btn ghost" onclick="adminLock()">Salir del panel</button>
       </div>
@@ -2973,6 +2995,62 @@ function onScan(data){
   bizFind();
 }
 
+/* ---- ACCESO DEL PERSONAL (código de 4 dígitos por local) ---- */
+// Códigos por defecto. Cámbialos desde el panel Admin.
+function getStaffCode(v){
+  try{ return localStorage.getItem('dimaria_staff_'+v) || (v==='bar'?'2202':'1101'); }
+  catch(e){ return v==='bar'?'2202':'1101'; }
+}
+let staffUnlocked = false;
+let staffVenue = null; // el local que desbloqueó el personal
+
+function abrirStaffLogin(){
+  document.getElementById('staffLogin').classList.remove('hidden');
+  document.getElementById('staffPin').value='';
+  document.getElementById('staffPin').focus();
+}
+function cerrarStaffLogin(){
+  document.getElementById('staffLogin').classList.add('hidden');
+  document.getElementById('staffMsg').className='msg';
+}
+function validarStaff(){
+  const code = (document.getElementById('staffPin').value||'').trim();
+  if(code.length<4){ flash('staffMsg','Ingresa el código de 4 dígitos.',false); return; }
+  let local = null;
+  if(code === getStaffCode('cafe')) local='cafe';
+  else if(code === getStaffCode('bar')) local='bar';
+  if(!local){ flash('staffMsg','Código incorrecto.',false); return; }
+  // desbloqueo el local correspondiente
+  staffUnlocked = true;
+  staffVenue = local;
+  document.getElementById('staffLogin').classList.add('hidden');
+  document.getElementById('staffMsg').className='msg';
+  document.getElementById('staffPin').value='';
+  // muestro las pestañas Negocio y Admin
+  document.getElementById('role-biz').classList.remove('hidden');
+  document.getElementById('role-admin').classList.remove('hidden');
+  // fijo el local del personal y bloqueo el cambio al otro
+  setVenue(local);
+  aplicarBloqueoLocal();
+  setRole('biz');
+}
+// Cuando el personal está dentro, el switch de local queda fijo en su sede.
+function aplicarBloqueoLocal(){
+  const otro = staffVenue==='cafe' ? 'bar' : 'cafe';
+  const btnOtro = document.getElementById('sw-'+otro);
+  const btnMio  = document.getElementById('sw-'+staffVenue);
+  if(btnOtro){ btnOtro.style.display='none'; }
+  if(btnMio){ btnMio.style.flex='1'; }
+}
+function salirStaff(){
+  staffUnlocked=false; staffVenue=null;
+  document.getElementById('role-biz').classList.add('hidden');
+  document.getElementById('role-admin').classList.add('hidden');
+  // restauro el switch de locales
+  ['cafe','bar'].forEach(v=>{ const b=document.getElementById('sw-'+v); if(b){ b.style.display=''; b.style.flex=''; } });
+  setRole('client');
+}
+
 /* ---- ADMIN: PIN + editor de premios ---- */
 let adminUnlocked=false;
 function getPin(){ try{ return localStorage.getItem('dimaria_pin')||'2468'; }catch(e){ return '2468'; } }
@@ -2998,11 +3076,23 @@ function changePin(){
   document.getElementById('newPin').value='';
   flash('pinMsg','PIN actualizado ✓',true);
 }
+function changeStaffCode(){
+  const c=(document.getElementById('staffCodeInput').value||'').trim();
+  if(!/^\d{4}$/.test(c)){ flash('staffCodeMsg','El código debe ser de exactamente 4 dígitos.',false); return; }
+  // no permitir que ambos locales tengan el mismo código
+  const otro = venue==='cafe' ? 'bar' : 'cafe';
+  if(c === getStaffCode(otro)){ flash('staffCodeMsg','Ese código ya lo usa el otro local. Elige uno distinto.',false); return; }
+  try{ localStorage.setItem('dimaria_staff_'+venue, c); }catch(e){}
+  document.getElementById('staffCodeInput').value='';
+  flash('staffCodeMsg','Código de '+CONFIG[venue].name+' actualizado ✓',true);
+}
 
 // draft de edición en memoria
 let editDraft=[];
 async function renderRewardEditor(){
   document.getElementById('adminVenueTitle').textContent='Premios — '+CONFIG[venue].name;
+  const scv=document.getElementById('staffCodeVenue');
+  if(scv) scv.textContent=CONFIG[venue].name;
   const box=document.getElementById('rewardEditor');
   box.innerHTML='<div class="empty"><span class="spinner"></span> Cargando premios...</div>';
   // traigo los premios frescos del Sheet para editar los que todos ven
